@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - RandomTask{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <div class="dashboard-header">
+        <h1>Today's Tasks</h1>
+        <p class="date">{{ today }}</p>
+        <div class="progress-container">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill" style="width: {{ (completed_count / task_number * 100) if task_number > 0 else 0 }}%"></div>
+            </div>
+            <span class="progress-text" id="progress-text">{{ completed_count }}/{{ task_number }} completed</span>
+        </div>
+    </div>
+    
+    <div class="tasks-container" id="tasks-container">
+        {% for task in tasks %}
+        <div class="task-card" data-task-id="{{ task.id }}">
+            <div class="task-number">{{ loop.index }}</div>
+            <input 
+                type="text" 
+                class="task-input" 
+                value="{{ task.content }}" 
+                placeholder="Enter your task..."
+                data-task-id="{{ task.id }}"
+            >
+            <label class="checkbox-container">
+                <input 
+                    type="checkbox" 
+                    class="task-checkbox" 
+                    {% if task.completed %}checked{% endif %}
+                    data-task-id="{{ task.id }}"
+                >
+                <span class="checkmark"></span>
+            </label>
+        </div>
+        {% endfor %}
+    </div>
+    
+    <div class="dashboard-footer">
+        <p class="motivation-text">
+            {% if completed_count == task_number %}
+                🎉 Amazing! You completed all tasks today!
+            {% elif completed_count > 0 %}
+                💪 Keep going! You're doing great!
+            {% else %}
+                🚀 Start completing your tasks!
+            {% endif %}
+        </p>
+    </div>
+</div>
+{% endblock %}

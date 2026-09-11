@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}RandomTask{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    {% if session.get('user_id') %}
+    <nav class="navbar">
+        <div class="nav-brand">RandomTask</div>
+        <div class="nav-links">
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('history') }}">History</a>
+            <button id="theme-toggle" class="theme-btn">🌙</button>
+            <div class="avatar-dropdown">
+                <button class="avatar-btn" id="avatar-btn">
+                    {% if user and user.avatar == 'male' %}
+                        <span class="avatar-icon male">👨</span>
+                    {% elif user and user.avatar == 'female' %}
+                        <span class="avatar-icon female">👩</span>
+                    {% else %}
+                        <span class="avatar-icon anonymous">👤</span>
+                    {% endif %}
+                </button>
+                <div class="dropdown-menu" id="avatar-menu">
+                    <button class="avatar-option" data-avatar="male">👨 Male</button>
+                    <button class="avatar-option" data-avatar="female">👩 Female</button>
+                    <button class="avatar-option" data-avatar="anonymous">👤 Anonymous</button>
+                    <hr>
+                    <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+    {% endif %}
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
