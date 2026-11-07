@@ -1,45 +1,58 @@
+{% from 'macros.html' import icon %}
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="A little structure. A little surprise. Make room for what matters with RandomTask.">
+    <meta name="theme-color" content="#183d33">
     <title>{% block title %}RandomTask{% endblock %}</title>
+    <script>try { const t = localStorage.getItem('theme'); if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (_) {}</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body>
-    {% if session.get('user_id') %}
-    <nav class="navbar">
-        <div class="nav-brand">RandomTask</div>
-        <div class="nav-links">
-            <a href="{{ url_for('dashboard') }}">Dashboard</a>
-            <a href="{{ url_for('history') }}">History</a>
-            <button id="theme-toggle" class="theme-btn">🌙</button>
-            <div class="avatar-dropdown">
-                <button class="avatar-btn" id="avatar-btn">
-                    {% if user and user.avatar == 'male' %}
-                        <span class="avatar-icon male">👨</span>
-                    {% elif user and user.avatar == 'female' %}
-                        <span class="avatar-icon female">👩</span>
-                    {% else %}
-                        <span class="avatar-icon anonymous">👤</span>
-                    {% endif %}
-                </button>
-                <div class="dropdown-menu" id="avatar-menu">
-                    <button class="avatar-option" data-avatar="male">👨 Male</button>
-                    <button class="avatar-option" data-avatar="female">👩 Female</button>
-                    <button class="avatar-option" data-avatar="anonymous">👤 Anonymous</button>
-                    <hr>
-                    <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+<body class="{% if not user %}auth-page{% endif %}">
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    {% if user %}
+    <div class="app-shell">
+    <aside class="sidebar" aria-label="Main navigation">
+        <a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-mark">{{ icon('dice', 28) }}</span><span class="brand-text">RandomTask<span class="brand-dot">.</span></span></a>
+        <p class="sidebar-label">YOUR WORKSPACE</p>
+        <nav>
+            <a class="sidebar-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}" {% if request.endpoint == 'dashboard' %}aria-current="page"{% endif %}>{{ icon('grid') }}<span>My day</span><span class="nav-arrow">↗</span></a>
+            <a class="sidebar-link {% if request.endpoint == 'history' %}active{% endif %}" href="{{ url_for('history') }}" {% if request.endpoint == 'history' %}aria-current="page"{% endif %}>{{ icon('history') }}<span>Task history</span></a>
+        </nav>
+        <div class="sidebar-tip"><span class="tip-icon">{{ icon('leaf', 25) }}</span><h3>Small steps.<br>Real progress.</h3><p>You don't have to do it all.<br>Just make a little room for today.</p></div>
+        <div class="sidebar-profile"><span class="profile-avatar">{{ user.username[0]|upper }}</span><div class="profile-copy"><strong>{{ user.username }}</strong><span>Your personal space</span></div></div>
+        <p class="sidebar-footer">A fresh start, every day.</p>
+    </aside>
+    <div class="workspace">
+        <header class="topbar">
+            <a class="mobile-brand" href="{{ url_for('dashboard') }}">{{ icon('dice', 24) }}<span>RandomTask<span class="brand-dot">.</span></span></a>
+            <div class="breadcrumb"><span>Workspace</span><span>/</span><strong>{{ 'Task history' if request.endpoint == 'history' else 'My day' }}</strong></div>
+            <div class="topbar-actions">
+                <button id="theme-toggle" class="theme-btn" type="button" aria-label="Switch to dark theme">{{ icon('moon') }}</button>
+                <div class="avatar-dropdown">
+                    <button class="avatar-btn" id="avatar-btn" type="button" aria-label="Profile and settings" aria-expanded="false" aria-controls="avatar-menu"><span class="avatar-icon {{ user.avatar }}">{{ '👨' if user.avatar == 'male' else '👩' if user.avatar == 'female' else user.username[0]|upper }}</span></button>
+                    <div class="dropdown-menu" id="avatar-menu" hidden>
+                        <p class="dropdown-heading">{{ user.username }}<span>Choose your avatar</span></p>
+                        <button type="button" class="avatar-option" data-avatar="anonymous">{{ icon('grid', 17) }} Your initial</button>
+                        <button type="button" class="avatar-option" data-avatar="male">👨 Male</button>
+                        <button type="button" class="avatar-option" data-avatar="female">👩 Female</button>
+                        <a href="{{ url_for('history') }}" class="avatar-option mobile-history">{{ icon('history', 17) }} Task history</a>
+                        <a href="{{ url_for('logout') }}" class="logout-btn">{{ icon('logout', 17) }} Sign out</a>
+                    </div>
                 </div>
             </div>
-        </div>
-    </nav>
+        </header>
     {% endif %}
-
-    <main class="container">
+    <main class="container" id="main-content">
         {% block content %}{% endblock %}
     </main>
-
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% if user %}<footer class="workspace-footer"><span>Make today a little more intentional.</span><span>One task at a time <span aria-hidden="true">✳</span></span></footer></div></div>{% endif %}
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
 </body>
 </html>

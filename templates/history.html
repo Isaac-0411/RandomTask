@@ -1,42 +1,18 @@
-{% extends "base.html" %}
-
-{% block title %}History - RandomTask{% endblock %}
-
+{% extends 'base.html' %}
+{% from 'macros.html' import icon %}
+{% block title %}Task history · RandomTask{% endblock %}
 {% block content %}
-<div class="history">
-    <h1>Task History</h1>
-    
+<section class="history">
+    <div class="page-heading"><div><p class="eyebrow">THE LITTLE THINGS ADD UP</p><h1>Your progress, over time<span class="brand-dot">.</span></h1><p>A record of the things you made room for. Every small win belongs here.</p></div><a class="btn btn-secondary" href="{{ url_for('dashboard') }}">Back to my day {{ icon('arrow', 17) }}</a></div>
     {% if history %}
+    <div class="history-stats-grid"><div class="history-stat"><span>Days on your journey</span><strong>{{ history|length }}<small>days</small></strong></div><div class="history-stat"><span>Small wins collected</span><strong>{{ history|sum(attribute='completed') }}<small>tasks completed</small></strong></div><div class="history-stat"><span>Days fully completed</span><strong>{{ history|selectattr('fully_completed')|list|length }}<small>well done</small></strong></div></div>
     <div class="history-list">
         {% for day in history %}
-        <div class="history-card">
-            <div class="history-header">
-                <span class="history-date">{{ day.date }}</span>
-                <span class="history-stats">
-                    {{ day.completed }}/{{ day.total }} completed
-                </span>
-            </div>
-            
-            {% if day.tasks %}
-            <ul class="history-tasks">
-                {% for task in day.tasks %}
-                <li class="history-task completed">
-                    <span class="task-check">✓</span>
-                    {{ task.content }}
-                </li>
-                {% endfor %}
-            </ul>
-            {% else %}
-            <p class="no-tasks">No completed tasks for this day</p>
-            {% endif %}
-        </div>
+        <article class="history-card"><div class="history-header"><div class="history-date">{{ icon('calendar', 20) }}<h2>{{ day.date }}</h2></div><span class="history-stats">{{ day.completed }} / {{ day.total }} completed</span></div><div class="history-progress"><div style="width: {{ (day.completed / day.total * 100) if day.total else 0 }}%"></div></div>
+            {% if day.tasks %}<ul class="history-tasks">{% for task in day.tasks %}<li><span class="task-check">{{ icon('check', 17) }}</span><span>{{ task.content }}</span></li>{% endfor %}</ul>{% else %}<p class="no-tasks">No completed tasks for this day. A fresh start is always waiting.</p>{% endif %}
+        </article>
         {% endfor %}
     </div>
-    {% else %}
-    <div class="empty-history">
-        <p>No history yet. Start completing tasks to build your history!</p>
-        <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Go to Dashboard</a>
-    </div>
-    {% endif %}
-</div>
+    {% else %}<div class="empty-history">{{ icon('history', 40) }}<h2>Your story starts today.</h2><p>Finish your first task and your small wins will start to gather here.</p><a href="{{ url_for('dashboard') }}" class="btn btn-primary">Make a little progress {{ icon('arrow', 18) }}</a></div>{% endif %}
+</section>
 {% endblock %}

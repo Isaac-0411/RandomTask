@@ -1,34 +1,12 @@
-{% extends "base.html" %}
-
-{% block title %}Login - RandomTask{% endblock %}
-
-{% block content %}
-<div class="auth-container">
-    <div class="auth-card">
-        <h1>Welcome Back</h1>
-        <p class="auth-subtitle">Login to continue your daily tasks</p>
-        
-        {% if error %}
-        <div class="error-message">{{ error }}</div>
-        {% endif %}
-        
-        <form method="POST" action="{{ url_for('login') }}">
-            <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" name="username" required>
-            </div>
-            
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
-            </div>
-            
-            <button type="submit" class="btn btn-primary">Login</button>
-        </form>
-        
-        <p class="auth-link">
-            Don't have an account? <a href="{{ url_for('register') }}">Register here</a>
-        </p>
-    </div>
-</div>
+{% extends 'auth_base.html' %}
+{% from 'macros.html' import icon %}
+{% block title %}Welcome back · RandomTask{% endblock %}
+{% block auth_content %}
+<p class="auth-kicker">YOUR DAY IS WAITING</p><h1>Welcome back<span class="brand-dot">.</span></h1><p class="auth-subtitle">A fresh start is just a sign-in away.</p>
+{% if error %}<div class="error-message" role="alert">{{ error }}</div>{% endif %}
+<form method="POST" action="{{ url_for('login') }}">
+    <div class="form-group"><label for="username">Username</label><input type="text" id="username" name="username" required maxlength="80" autocomplete="username" placeholder="Your username" value="{{ request.form.get('username', '') }}"></div>
+    <div class="form-group"><label for="password">Password</label><div class="password-field"><input type="password" id="password" name="password" required maxlength="256" autocomplete="current-password" placeholder="Your password"><button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">{{ icon('eye', 19) }}</button></div></div>
+    <button type="submit" class="btn btn-primary">Sign in {{ icon('arrow', 18) }}</button>
+</form><p class="auth-link">New around here? <a href="{{ url_for('register') }}">Create an account</a></p>
 {% endblock %}

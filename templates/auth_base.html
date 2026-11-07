@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% from 'macros.html' import icon %}
+{% block content %}
+<div class="auth-layout">
+    <aside class="auth-story"><a href="{{ url_for('index') }}" class="brand"><span class="brand-mark">{{ icon('dice', 28) }}</span><span class="brand-text">RandomTask<span class="brand-dot">.</span></span></a><div class="auth-story-copy"><p class="eyebrow">A LITTLE DIFFERENT, EVERY DAY</p><h1>Small steps.<br>A day well spent<span class="brand-dot">.</span></h1><p>A fresh list of possibilities, a little room to focus, and the quiet satisfaction of getting things done.</p><div class="auth-illustration" aria-hidden="true"><div class="demo-sheet"><div class="demo-sheet-heading"><span>Today's little wins</span>{{ icon('spark', 18) }}</div><div class="demo-line"><span class="demo-check checked">✓</span><span>Make room for a fresh start</span></div><div class="demo-line"><span class="demo-check checked">✓</span><span>Do one thing just for you</span></div><div class="demo-line"><span class="demo-check"></span><span>See where today takes you</span></div><div class="demo-sheet-footer"><span>Small is a good place to start.</span>{{ icon('leaf', 18) }}</div></div></div></div><p class="auth-story-footer">A little structure. A little surprise. All yours.</p></aside>
+    <section class="auth-form-panel"><div class="auth-card">{% block auth_content %}{% endblock %}</div><p class="auth-bottom">A fresh number of tasks, every day. You make them yours.</p></section>
+</div>
+{% endblock %}

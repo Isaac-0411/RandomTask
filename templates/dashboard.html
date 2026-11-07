@@ -1,54 +1,33 @@
-{% extends "base.html" %}
-
-{% block title %}Dashboard - RandomTask{% endblock %}
-
+{% extends 'base.html' %}
+{% from 'macros.html' import icon %}
+{% block title %}My day · RandomTask{% endblock %}
 {% block content %}
-<div class="dashboard">
-    <div class="dashboard-header">
-        <h1>Today's Tasks</h1>
-        <p class="date">{{ today }}</p>
-        <div class="progress-container">
-            <div class="progress-bar">
-                <div class="progress-fill" id="progress-fill" style="width: {{ (completed_count / task_number * 100) if task_number > 0 else 0 }}%"></div>
+{% set percent = ((completed_count / task_number * 100)|round|int) if task_number else 0 %}
+<section class="dashboard">
+    <div class="page-heading"><div><p class="eyebrow">A FRESH START</p><h1>A little focus. A good day<span class="brand-dot">.</span></h1><p>Hi {{ user.username }}, let's make a little progress on what matters.</p></div><div class="heading-date">{{ icon('calendar', 18) }}<span>{{ today }}</span></div></div>
+    <div class="daily-summary"><div class="summary-icon">{{ icon('dice', 30) }}</div><div class="summary-copy"><small>YOUR DAILY DRAW</small><strong>A little structure. A little surprise.</strong><p>A random 2–9 tasks each day. You choose what goes on the list.</p></div><div class="summary-count"><strong>{{ task_number }}</strong><span>tasks today</span></div></div>
+    <div class="dashboard-grid">
+        <section class="task-panel" aria-labelledby="tasks-heading">
+            <div class="panel-header"><h2 id="tasks-heading">Today's tasks <span class="task-total">{{ task_number }}</span></h2><button id="save-status" class="save-indicator" data-state="saved" type="button" aria-live="polite" title="Your changes save automatically"><span class="save-dot"></span><span>All changes saved</span></button></div>
+            <div class="task-filters" role="group" aria-label="Filter tasks"><button type="button" class="filter-btn active" data-filter="all" aria-pressed="true">All tasks</button><button type="button" class="filter-btn" data-filter="active" aria-pressed="false">To do <span id="active-filter-count">{{ task_number - completed_count }}</span></button><button type="button" class="filter-btn" data-filter="completed" aria-pressed="false">Completed <span id="completed-filter-count">{{ completed_count }}</span></button></div>
+            <div class="task-list tasks-container" id="tasks-container">
+                {% for task in tasks %}
+                <div class="task-card {% if task.completed %}completed{% endif %}" data-task-id="{{ task.id }}">
+                    <label class="checkbox-container"><input type="checkbox" class="task-checkbox" {% if task.completed %}checked{% endif %} data-task-id="{{ task.id }}" aria-label="Complete task {{ loop.index }}"><span class="checkmark"></span></label>
+                    <span class="task-number">{{ '%02d'|format(loop.index) }}</span>
+                    <input type="text" class="task-input" value="{{ task.content }}" maxlength="2000" placeholder="What would you like to get done?" data-task-id="{{ task.id }}" aria-label="Task {{ loop.index }}" autocomplete="off">
+                    <button type="button" class="task-retry btn-text" hidden>Retry save</button>
+                </div>
+                {% endfor %}
             </div>
-            <span class="progress-text" id="progress-text">{{ completed_count }}/{{ task_number }} completed</span>
-        </div>
+            <p id="filter-empty" class="filter-empty" hidden>No tasks in this view yet.</p>
+            <div class="task-list-footer"><span class="keyboard-hint">{{ icon('check', 15) }} Write a task, then check it off.</span><span id="visible-count">{{ task_number }} tasks</span></div>
+        </section>
+        <aside class="focus-column" aria-label="Daily progress">
+            <section class="focus-card"><p class="card-eyebrow">ONE STEP AT A TIME</p><h2>Your daily progress</h2><div class="progress-ring"><svg viewBox="0 0 180 180" aria-hidden="true"><circle class="progress-track" cx="90" cy="90" r="72"/><circle class="progress-arc" id="progress-arc" cx="90" cy="90" r="72" pathLength="100" stroke-dasharray="100" stroke-dashoffset="{{ 100 - percent }}"/></svg><div class="ring-label"><strong id="progress-percent">{{ percent }}<small>%</small></strong><span>of your day, done</span></div></div><p class="progress-text" id="progress-text">{{ completed_count }} of {{ task_number }} tasks completed</p><div class="progress-bar" role="progressbar" aria-label="Daily task completion" aria-valuemin="0" aria-valuemax="{{ task_number }}" aria-valuenow="{{ completed_count }}"><div class="progress-fill" id="progress-fill" style="width: {{ percent }}%"></div></div><div class="progress-legend"><span><i class="legend-dot"></i><span id="legend-completed">{{ completed_count }} done</span></span><span id="legend-remaining">{{ task_number - completed_count }} to go</span></div><div class="focus-motivation"><p class="motivation-text">{{ 'Everything done. Enjoy a little breathing room.' if completed_count == task_number else 'Every little step counts. Keep going.' if completed_count else 'Your first small win is waiting.' }}</p></div></section>
+            <section class="note-card"><span class="note-icon">{{ icon('leaf', 24) }}</span><h3>Less rush. More intention.</h3><p>Start with something small. A clear desk, a short walk, that one message. It all counts.</p></section>
+            <a class="history-link-card" href="{{ url_for('history') }}"><span>{{ icon('history', 20) }} Look how far you've come</span>{{ icon('arrow', 18) }}</a>
+        </aside>
     </div>
-    
-    <div class="tasks-container" id="tasks-container">
-        {% for task in tasks %}
-        <div class="task-card" data-task-id="{{ task.id }}">
-            <div class="task-number">{{ loop.index }}</div>
-            <input 
-                type="text" 
-                class="task-input" 
-                value="{{ task.content }}" 
-                placeholder="Enter your task..."
-                data-task-id="{{ task.id }}"
-            >
-            <label class="checkbox-container">
-                <input 
-                    type="checkbox" 
-                    class="task-checkbox" 
-                    {% if task.completed %}checked{% endif %}
-                    data-task-id="{{ task.id }}"
-                >
-                <span class="checkmark"></span>
-            </label>
-        </div>
-        {% endfor %}
-    </div>
-    
-    <div class="dashboard-footer">
-        <p class="motivation-text">
-            {% if completed_count == task_number %}
-                🎉 Amazing! You completed all tasks today!
-            {% elif completed_count > 0 %}
-                💪 Keep going! You're doing great!
-            {% else %}
-                🚀 Start completing your tasks!
-            {% endif %}
-        </p>
-    </div>
-</div>
+</section>
 {% endblock %}
