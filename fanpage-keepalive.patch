@@ -1,0 +1,617 @@
+diff --git i/Procfile w/Procfile
+index ca6e941..d78eac6 100644
+--- i/Procfile
++++ w/Procfile
+@@ -1 +1 @@
+-web: gunicorn app:app
++web: gunicorn --workers 1 --access-logfile - app:app
+diff --git i/README.md w/README.md
+index 422d560..a95c064 100644
+--- i/README.md
++++ w/README.md
+@@ -78,9 +78,10 @@ secrets are pushed.
+ 
+ 1. Sign up at https://render.com with your GitHub account.
+ 2. **New +** → **Blueprint** → pick the `fanpage` repo. Render reads
+-   `render.yaml` and configures everything (free plan, `gunicorn app:app`).
++   `render.yaml` and configures everything (free plan, Gunicorn, `/health`).
+    (Or **New +** → **Web Service** and set Build = `pip install -r requirements.txt`,
+-   Start = `gunicorn app:app`, Instance type = **Free**.)
++   Start = `gunicorn --workers 1 --access-logfile - app:app`, Health Check Path = `/health`,
++   Instance type = **Free**.)
+ 3. Add the **environment variables** Render asks for:
+    - `DATABASE_URL` = the Neon connection string from Step 1.
+    - `ADMIN_PASSWORD` = your own long random secret (do **not** leave it
+@@ -94,6 +95,83 @@ Open the URL → gear → **Admin mode** → enter the `ADMIN_PASSWORD` you set
+ Step 3. Add folders/images/videos — they're written to Neon and survive every
+ future redeploy and restart.
+ 
++### Cron requests and HTTP 429
++
++The frontend and backend run in the same Flask service. Use its public
++`GET /health` endpoint for cron requests. It returns HTTP `200` with
++`{"status":"ok"}` without authentication, database queries, redirects, or
++external API calls. It also supports `HEAD` and sets `Cache-Control: no-store`.
++This checks the web process; it does not check database availability.
++
++After deploying this change, configure one external cron job:
++
++- URL: your service's HTTPS URL followed by `/health` (no trailing slash),
++  e.g. `https://fanpage-ez7l.onrender.com/health`.
++- Method: `GET`.
++- Schedule: every 10 minutes (`*/10 * * * *`).
++- Timeout: at least 90 seconds, if the cron provider supports it, to allow an
++  idle service to start. Avoid overlapping jobs and immediate retries.
++
++For a Blueprint-managed service, sync `render.yaml`. For an existing service
++created manually, update its Start Command and Health Check Path to the values
++in Step 3. Render's own health checks do not configure an external cron job.
++
++Check the endpoint once after deployment:
++
++```bash
++curl --include --max-time 90 https://YOUR-SERVICE.onrender.com/health
++```
++
++A missing `/health` route returns `404`. The application rate limiter below
++always exempts `/health`; adding a health route cannot remove a rate limit
++imposed before a request reaches Flask. Render documents inbound throttling,
++especially for free services, as one possible cause of `429`:
++[Render's HTTP error guide](https://render.com/docs/troubleshooting-deploys#429-too-many-requests).
++
++If `429` continues, capture the cron response headers/body and timestamp, check
++any `Retry-After` header, and compare one manual request with one scheduled
++request. The Gunicorn start command logs requests to Render's service logs.
++A rejected request with no matching access log suggests it was blocked before
++reaching this app; investigate Render, any proxy, and the cron provider. Cron
++requests remain subject to [Render's free-plan limits](https://render.com/docs/free).
++
++### API rate limits
++
++Flask-Limiter limits API traffic by client IP. The defaults are:
++
++| Requests | Limit per IP | Environment variable |
++| --- | --- | --- |
++| All API endpoints combined | 120 per minute | `RATELIMIT_APPLICATION` |
++| Folder/video POST, PATCH, and DELETE requests combined | 30 per minute | `RATELIMIT_API_WRITES` |
++| `POST /api/admin/verify`, including failed attempts | 5 per minute | `RATELIMIT_ADMIN_VERIFY` |
++
++The limits apply together. Exceeding one returns HTTP `429` with a JSON error,
++`Retry-After` in seconds, and `X-RateLimit-*` headers. The browser displays the
++error rather than retrying automatically. The homepage, static assets, uploaded
++cover images, and `/health` (including HEAD requests) never use these quotas.
++
++The default store is `memory://`; the start commands explicitly run one Gunicorn
++worker so requests share its counters. Counts reset on restart. Before increasing
++the worker count or adding service instances, set `RATELIMIT_STORAGE_URI` to a
++shared Redis URL (`redis://...` or `rediss://...`); Redis support is included in
++`requirements.txt`. Do not put a
++Redis password in source control. See [Flask-Limiter storage configuration](https://flask-limiter.readthedocs.io/en/stable/configuration.html#ratelimit-storage-uri).
++
++On Render (`RENDER=true`), client identification uses a single validated
++`CF-Connecting-IP`, based on Render's public traffic passing through Cloudflare.
++This assumes the public Render edge supplies that header; if it is missing or
++invalid, the limiter uses the socket address instead. Arbitrary
++`X-Forwarded-For` values are ignored. Locally, forwarded headers are ignored by
++default. Set `RATELIMIT_TRUST_CLOUDFLARE=false` to disable this trust, or enable
++it only behind a Cloudflare edge you control. See [Render's edge architecture](https://render.com/articles/how-render-handles-ddos-attacks)
++and [Cloudflare's header documentation](https://developers.cloudflare.com/fundamentals/reference/http-headers/).
++
++Run the regression checks with:
++
++```bash
++.venv/bin/python -m unittest discover -s tests -v
++```
++
+ ### Good to know about the free tier
+ 
+ - Render's free web service **sleeps after 15 minutes** of no traffic, so the
+diff --git i/fanpage/__init__.py w/fanpage/__init__.py
+index c73d02a..b67138e 100644
+--- i/fanpage/__init__.py
++++ w/fanpage/__init__.py
+@@ -7,7 +7,7 @@ Layering, in request order:
+ from flask import Flask
+ 
+ from .config import Config
+-from .extensions import db
++from .extensions import db, limiter
+ 
+ 
+ def create_app(config_class=Config) -> Flask:
+@@ -19,6 +19,7 @@ def create_app(config_class=Config) -> Flask:
+     app.config.from_object(config_class)
+ 
+     db.init_app(app)
++    limiter.init_app(app)
+ 
+     # Importing registers the models so create_all knows about them.
+     from . import models  # noqa: F401
+@@ -39,4 +40,4 @@ def create_app(config_class=Config) -> Flask:
+         db.create_all()
+         models.run_migrations()
+ 
+-    return app
+\ No newline at end of file
++    return app
+diff --git i/fanpage/api/admin.py w/fanpage/api/admin.py
+index 300c02c..6e83f31 100644
+--- i/fanpage/api/admin.py
++++ w/fanpage/api/admin.py
+@@ -1,13 +1,15 @@
+ """Admin endpoints."""
+ 
+-from flask import Blueprint, jsonify
++from flask import Blueprint, current_app, jsonify
+ 
++from ..extensions import limiter
+ from ..security import require_admin
+ 
+ bp = Blueprint("admin", __name__)
+ 
+ 
+ @bp.post("/verify")
++@limiter.limit(lambda: current_app.config["RATELIMIT_ADMIN_VERIFY"])
+ @require_admin
+ def verify():
+-    return jsonify(ok=True)
+\ No newline at end of file
++    return jsonify(ok=True)
+diff --git i/fanpage/api/folders.py w/fanpage/api/folders.py
+index 998d50b..88768b6 100644
+--- i/fanpage/api/folders.py
++++ w/fanpage/api/folders.py
+@@ -1,13 +1,18 @@
+ """Folder (album) endpoints."""
+ 
+-from flask import Blueprint, jsonify, request
++from flask import Blueprint, current_app, jsonify, request
+ 
+-from ..extensions import db
++from ..extensions import db, limiter
+ from ..images import resolve_from_request
+ from ..models import Folder, Image
+ from ..security import require_admin
+ 
+ bp = Blueprint("folders", __name__)
++limiter.shared_limit(
++    lambda: current_app.config["RATELIMIT_API_WRITES"],
++    scope="api-writes",
++    methods=["POST", "PATCH", "DELETE"],
++)(bp)
+ 
+ 
+ @bp.get("")
+@@ -82,4 +87,4 @@ def delete_folder(folder_id):
+         if image:
+             db.session.delete(image)
+     db.session.commit()
+-    return jsonify(ok=True)
+\ No newline at end of file
++    return jsonify(ok=True)
+diff --git i/fanpage/api/videos.py w/fanpage/api/videos.py
+index b129aeb..658427a 100644
+--- i/fanpage/api/videos.py
++++ w/fanpage/api/videos.py
+@@ -1,14 +1,19 @@
+ """Video endpoints. Users paste a plain YouTube link; we parse it and probe
+ whether the video allows embedding so the page can fall back gracefully."""
+ 
+-from flask import Blueprint, jsonify, request
++from flask import Blueprint, current_app, jsonify, request
+ 
+-from ..extensions import db
++from ..extensions import db, limiter
+ from ..models import Folder, Video
+ from ..security import require_admin
+ from ..youtube import fetch_metadata, parse_embed_snippet, parse_youtube_id
+ 
+ bp = Blueprint("videos", __name__)
++limiter.shared_limit(
++    lambda: current_app.config["RATELIMIT_API_WRITES"],
++    scope="api-writes",
++    methods=["POST", "PATCH", "DELETE"],
++)(bp)
+ 
+ 
+ def _folder_or_404(folder_id):
+@@ -104,4 +109,4 @@ def delete_video(folder_id, video_id):
+         return jsonify(error="Video not found."), 404
+     db.session.delete(video)
+     db.session.commit()
+-    return jsonify(ok=True)
+\ No newline at end of file
++    return jsonify(ok=True)
+diff --git i/fanpage/config.py w/fanpage/config.py
+index 55d2695..9cffb00 100644
+--- i/fanpage/config.py
++++ w/fanpage/config.py
+@@ -38,6 +38,16 @@ class Config:
+ 
+     MAX_CONTENT_LENGTH = MAX_IMAGE_BYTES
+ 
++    RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
++    RATELIMIT_APPLICATION = os.environ.get("RATELIMIT_APPLICATION", "120 per minute")
++    RATELIMIT_API_WRITES = os.environ.get("RATELIMIT_API_WRITES", "30 per minute")
++    RATELIMIT_ADMIN_VERIFY = os.environ.get("RATELIMIT_ADMIN_VERIFY", "5 per minute")
++    RATELIMIT_HEADERS_ENABLED = True
++    RATELIMIT_HEADER_RETRY_AFTER_VALUE = "delta-seconds"
++    RATELIMIT_TRUST_CLOUDFLARE = os.environ.get(
++        "RATELIMIT_TRUST_CLOUDFLARE", os.environ.get("RENDER", "false")
++    ).lower() == "true"
++
+     @property
+     def IS_SQLITE(self) -> bool:  # noqa: N802
+         return self.SQLALCHEMY_DATABASE_URI.startswith("sqlite")
+diff --git i/fanpage/errors.py w/fanpage/errors.py
+index 2268c62..639f3d7 100644
+--- i/fanpage/errors.py
++++ w/fanpage/errors.py
+@@ -5,6 +5,13 @@ from werkzeug.exceptions import RequestEntityTooLarge
+ 
+ 
+ def register_error_handlers(app):
++    @app.errorhandler(429)
++    def rate_limit_exceeded(_err):
++        response = jsonify(error="Too many requests. Please try again later.")
++        response.status_code = 429
++        response.headers["Cache-Control"] = "no-store"
++        return response
++
+     @app.errorhandler(RequestEntityTooLarge)
+     def too_large(_err):
+         return jsonify(error="Image is too large."), 400
+diff --git i/fanpage/extensions.py w/fanpage/extensions.py
+index a7d36fc..6204d77 100644
+--- i/fanpage/extensions.py
++++ w/fanpage/extensions.py
+@@ -1,5 +1,19 @@
+ """Shared Flask extension instances (initialised in the app factory)."""
+ 
++from flask import current_app, request
++from flask_limiter import Limiter
+ from flask_sqlalchemy import SQLAlchemy
+ 
++from .rate_limits import client_ip
++
+ db = SQLAlchemy()
++limiter = Limiter(
++    key_func=client_ip,
++    application_limits=[lambda: current_app.config["RATELIMIT_APPLICATION"]],
++)
++
++
++@limiter.request_filter
++def exempt_public_requests():
++    # Health checks and frontend/static/image requests never use API quotas.
++    return not request.path.startswith("/api/")
+diff --git i/fanpage/views.py w/fanpage/views.py
+index 1e20c22..c2e1df3 100644
+--- i/fanpage/views.py
++++ w/fanpage/views.py
+@@ -8,6 +8,14 @@ from .models import Image
+ bp = Blueprint("views", __name__)
+ 
+ 
++@bp.get("/health")
++def health():
++    """Answer cron and liveness checks without auth, database, or API calls."""
++    response = jsonify(status="ok")
++    response.headers["Cache-Control"] = "no-store"
++    return response
++
++
+ @bp.get("/")
+ def index():
+     return send_from_directory(current_app.config["PUBLIC_DIR"], "index.html")
+diff --git i/public/js/api.js w/public/js/api.js
+index 07273d8..8c42f90 100644
+--- i/public/js/api.js
++++ w/public/js/api.js
+@@ -44,13 +44,12 @@ export const api = {
+     request("/api/folders").then((r) => r.folders.find((f) => f.id === id) || null),
+ 
+   verifyAdmin: (key) =>
+-    fetch("/api/admin/verify", {
++    request("/api/admin/verify", {
+       method: "POST",
+       headers: { "x-admin-key": key },
+-    }).then((r) => {
+-      if (r.status === 401) throw new Error("Wrong password.");
+-      if (!r.ok) throw new Error("Could not reach the server.");
+-      return { ok: true };
++    }).catch((err) => {
++      if (err.status === 401) err.message = "Wrong password.";
++      throw err;
+     }),
+ 
+   createFolder: (formData) =>
+diff --git i/render.yaml w/render.yaml
+index bdf0e00..6ce365e 100644
+--- i/render.yaml
++++ w/render.yaml
+@@ -6,7 +6,8 @@ services:
+     runtime: python
+     plan: free
+     buildCommand: pip install -r requirements.txt
+-    startCommand: gunicorn app:app
++    startCommand: gunicorn --workers 1 --access-logfile - app:app
++    healthCheckPath: /health
+     envVars:
+       - key: ADMIN_PASSWORD
+         sync: false
+diff --git i/requirements.txt w/requirements.txt
+index c366852..6c1f1cd 100644
+--- i/requirements.txt
++++ w/requirements.txt
+@@ -1,5 +1,6 @@
+ Flask>=3.1,<4
++Flask-Limiter[redis]>=4.1,<5
+ Flask-SQLAlchemy>=3.1,<4
+ python-dotenv>=1.0,<2
+ psycopg[binary]>=3.2,<4
+-gunicorn>=23,<24
+\ No newline at end of file
++gunicorn>=23,<24
+diff --git 1/fanpage/rate_limits.py 2/fanpage/rate_limits.py
+new file mode 100644
+index 0000000..81f9c12
+--- /dev/null
++++ 2/fanpage/rate_limits.py
+@@ -0,0 +1,17 @@
++"""Client identity for rate limiting at the public Render/Cloudflare edge."""
++
++from ipaddress import ip_address
++
++from flask import current_app, request
++
++
++def client_ip() -> str:
++    # Render's public web traffic passes through Cloudflare. Only trust this
++    # header when that deployment boundary has explicitly been enabled.
++    if current_app.config["RATELIMIT_TRUST_CLOUDFLARE"]:
++        forwarded = request.headers.get("CF-Connecting-IP", "").strip()
++        try:
++            return str(ip_address(forwarded))
++        except ValueError:
++            pass
++    return request.remote_addr or "unknown"
+diff --git 1/tests/test_rate_limits.py 2/tests/test_rate_limits.py
+new file mode 100644
+index 0000000..51357e3
+--- /dev/null
++++ 2/tests/test_rate_limits.py
+@@ -0,0 +1,233 @@
++"""Behavioral checks for API throttling and public health-check exemptions."""
++
++import os
++import unittest
++from unittest.mock import patch
++
++from sqlalchemy import event
++
++# Never let a developer's DATABASE_URL select a real database during imports.
++with patch.dict(os.environ, {"DATABASE_URL": "sqlite:///:memory:"}):
++    from fanpage import create_app
++    from fanpage.config import Config
++    from fanpage.extensions import db
++    from fanpage.models import Image
++    from fanpage.rate_limits import client_ip
++
++
++class RateLimitTests(unittest.TestCase):
++    def setUp(self):
++        self.make_app()
++
++    def make_app(self, **overrides):
++        if hasattr(self, "app"):
++            self.close_app()
++        settings = {
++            "TESTING": True,
++            "ADMIN_PASSWORD": "test-admin-password",
++            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
++            "SQLALCHEMY_ENGINE_OPTIONS": {},
++            "RATELIMIT_ENABLED": True,
++            "RATELIMIT_STORAGE_URI": "memory://",
++            "RATELIMIT_APPLICATION": "3 per minute",
++            "RATELIMIT_API_WRITES": "2 per minute",
++            "RATELIMIT_ADMIN_VERIFY": "2 per minute",
++            "RATELIMIT_HEADERS_ENABLED": True,
++            "RATELIMIT_HEADER_RETRY_AFTER_VALUE": "delta-seconds",
++            "RATELIMIT_TRUST_CLOUDFLARE": False,
++        }
++        settings.update(overrides)
++        config = type("RateLimitTestConfig", (Config,), settings)
++        self.app = create_app(config)
++        self.client = self.app.test_client()
++
++    def close_app(self):
++        with self.app.app_context():
++            db.session.remove()
++            db.engine.dispose()
++
++    def tearDown(self):
++        self.close_app()
++
++    def exhaust_api(self, **kwargs):
++        for _ in range(3):
++            self.assertEqual(self.client.get("/api/folders", **kwargs).status_code, 200)
++        response = self.client.get("/api/folders", **kwargs)
++        self.assertEqual(response.status_code, 429)
++        return response
++
++    def test_application_limit_returns_json_and_retry_headers(self):
++        response = self.exhaust_api()
++        self.assertEqual(
++            response.json,
++            {"error": "Too many requests. Please try again later."},
++        )
++        self.assertEqual(response.headers["X-RateLimit-Remaining"], "0")
++        self.assertEqual(response.headers["X-RateLimit-Limit"], "3")
++        retry_after = int(response.headers["Retry-After"])
++        self.assertGreaterEqual(retry_after, 1)
++        self.assertLessEqual(retry_after, 61)
++
++    def test_application_budget_is_shared_across_api_endpoints(self):
++        self.assertEqual(self.client.get("/api/folders").status_code, 200)
++        self.assertEqual(self.client.post("/api/admin/verify").status_code, 401)
++        self.assertEqual(self.client.patch("/api/folders/missing").status_code, 401)
++        self.assertEqual(self.client.get("/api/folders").status_code, 429)
++
++    def test_different_client_addresses_have_independent_budgets(self):
++        self.exhaust_api(environ_overrides={"REMOTE_ADDR": "198.51.100.1"})
++        response = self.client.get(
++            "/api/folders", environ_overrides={"REMOTE_ADDR": "198.51.100.2"}
++        )
++        self.assertEqual(response.status_code, 200)
++
++    def test_forwarded_headers_cannot_evade_limits_when_not_trusted(self):
++        self.exhaust_api(environ_overrides={"REMOTE_ADDR": "198.51.100.1"})
++        for forwarded_ip in ("203.0.113.1", "203.0.113.2"):
++            response = self.client.get(
++                "/api/folders",
++                environ_overrides={"REMOTE_ADDR": "198.51.100.1"},
++                headers={
++                    "X-Forwarded-For": forwarded_ip,
++                    "CF-Connecting-IP": forwarded_ip,
++                },
++            )
++            self.assertEqual(response.status_code, 429)
++
++    def test_mutations_share_a_limit_across_methods_and_blueprints(self):
++        self.make_app(RATELIMIT_APPLICATION="100 per minute")
++        self.assertEqual(self.client.post("/api/folders").status_code, 401)
++        self.assertEqual(
++            self.client.delete("/api/folders/one/videos/two").status_code, 401
++        )
++        self.assertEqual(self.client.patch("/api/folders/three").status_code, 429)
++        self.assertEqual(self.client.get("/api/folders").status_code, 200)
++
++    def test_failed_admin_attempts_are_counted_even_if_key_changes(self):
++        self.make_app(RATELIMIT_APPLICATION="100 per minute")
++        for key in ("bad-key-one", "bad-key-two"):
++            self.assertEqual(
++                self.client.post(
++                    "/api/admin/verify", headers={"x-admin-key": key}
++                ).status_code,
++                401,
++            )
++        response = self.client.post(
++            "/api/admin/verify", headers={"x-admin-key": "test-admin-password"}
++        )
++        self.assertEqual(response.status_code, 429)
++        response = self.client.post(
++            "/api/admin/verify",
++            headers={"x-admin-key": "test-admin-password"},
++            environ_overrides={"REMOTE_ADDR": "198.51.100.2"},
++        )
++        self.assertEqual(response.status_code, 200)
++
++    def test_admin_verification_does_not_consume_mutation_budget(self):
++        self.make_app(RATELIMIT_APPLICATION="100 per minute")
++        for _ in range(2):
++            response = self.client.post(
++                "/api/admin/verify", headers={"x-admin-key": "test-admin-password"}
++            )
++            self.assertEqual(response.status_code, 200)
++        for _ in range(2):
++            self.assertEqual(self.client.post("/api/folders").status_code, 401)
++        self.assertEqual(self.client.post("/api/folders").status_code, 429)
++
++    def test_health_and_frontend_remain_available_after_api_limit(self):
++        self.exhaust_api()
++        with self.app.app_context():
++            engine = db.engine
++
++        def reject_database_work(*_args, **_kwargs):
++            raise AssertionError("Exempt health/frontend request queried the database")
++
++        event.listen(engine, "before_cursor_execute", reject_database_work)
++        try:
++            for _ in range(10):
++                for method in ("GET", "HEAD"):
++                    response = self.client.open("/health", method=method)
++                    self.assertEqual(response.status_code, 200)
++                    self.assertEqual(response.headers["Cache-Control"], "no-store")
++                    self.assertNotIn("X-RateLimit-Limit", response.headers)
++                    if method == "GET":
++                        self.assertEqual(response.json, {"status": "ok"})
++                    else:
++                        self.assertEqual(response.data, b"")
++            for path in ("/", "/js/app.js", "/css/styles.css"):
++                with self.client.get(path) as response:
++                    self.assertEqual(response.status_code, 200)
++            # Throttling must happen before a database query and remain HTTP 429.
++            self.assertEqual(self.client.get("/api/folders").status_code, 429)
++        finally:
++            event.remove(engine, "before_cursor_execute", reject_database_work)
++
++    def test_cover_images_remain_available_after_api_limit(self):
++        with self.app.app_context():
++            image = Image(content_type="image/png", data=b"test-cover-image")
++            db.session.add(image)
++            db.session.commit()
++            image_id = image.id
++        self.exhaust_api()
++        response = self.client.get(f"/uploads/{image_id}")
++        self.assertEqual(response.status_code, 200)
++        self.assertEqual(response.data, b"test-cover-image")
++
++    def test_limit_expires_without_sleeping(self):
++        with patch("limits.storage.memory.time.time", return_value=1_000_000) as clock:
++            self.exhaust_api()
++            clock.return_value = 1_000_061
++            self.assertEqual(self.client.get("/api/folders").status_code, 200)
++
++    def test_trusted_cloudflare_clients_have_independent_limits(self):
++        self.make_app(RATELIMIT_TRUST_CLOUDFLARE=True)
++        proxy = {"REMOTE_ADDR": "10.0.0.1"}
++        self.exhaust_api(
++            headers={"CF-Connecting-IP": "198.51.100.1"},
++            environ_overrides=proxy,
++        )
++        response = self.client.get(
++            "/api/folders",
++            headers={
++                "CF-Connecting-IP": "198.51.100.1",
++                "X-Forwarded-For": "203.0.113.200",
++            },
++            environ_overrides=proxy,
++        )
++        self.assertEqual(response.status_code, 429)
++        response = self.client.get(
++            "/api/folders",
++            headers={"CF-Connecting-IP": "198.51.100.2"},
++            environ_overrides=proxy,
++        )
++        self.assertEqual(response.status_code, 200)
++
++    def test_client_ip_normalizes_trusted_addresses_and_rejects_invalid_values(self):
++        self.app.config["RATELIMIT_TRUST_CLOUDFLARE"] = True
++        with self.app.test_request_context(
++            "/api/folders",
++            headers={"CF-Connecting-IP": "2001:0DB8:0000::1"},
++            environ_overrides={"REMOTE_ADDR": "10.0.0.1"},
++        ):
++            self.assertEqual(client_ip(), "2001:db8::1")
++        for value in ("", "not-an-ip", "198.51.100.1, 198.51.100.2"):
++            with self.subTest(value=value), self.app.test_request_context(
++                "/api/folders",
++                headers={
++                    "CF-Connecting-IP": value,
++                    "X-Forwarded-For": "203.0.113.200",
++                },
++                environ_overrides={"REMOTE_ADDR": "10.0.0.1"},
++            ):
++                self.assertEqual(client_ip(), "10.0.0.1")
++        self.app.config["RATELIMIT_TRUST_CLOUDFLARE"] = False
++        with self.app.test_request_context(
++            "/api/folders",
++            headers={"CF-Connecting-IP": "198.51.100.1"},
++            environ_overrides={"REMOTE_ADDR": "10.0.0.1"},
++        ):
++            self.assertEqual(client_ip(), "10.0.0.1")
++
++
++if __name__ == "__main__":
++    unittest.main()
