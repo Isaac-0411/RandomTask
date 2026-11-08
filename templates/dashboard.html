@@ -15,7 +15,7 @@
                 <div class="task-card {% if task.completed %}completed{% endif %}" data-task-id="{{ task.id }}">
                     <label class="checkbox-container"><input type="checkbox" class="task-checkbox" {% if task.completed %}checked{% endif %} data-task-id="{{ task.id }}" aria-label="Complete task {{ loop.index }}"><span class="checkmark"></span></label>
                     <span class="task-number">{{ '%02d'|format(loop.index) }}</span>
-                    <input type="text" class="task-input" value="{{ task.content }}" maxlength="2000" placeholder="What would you like to get done?" data-task-id="{{ task.id }}" aria-label="Task {{ loop.index }}" autocomplete="off">
+                    <input type="text" class="task-input" value="{{ task.content }}" maxlength="1000" placeholder="What would you like to get done?" data-task-id="{{ task.id }}" aria-label="Task {{ loop.index }}" autocomplete="off">
                     <button type="button" class="task-retry btn-text" hidden>Retry save</button>
                 </div>
                 {% endfor %}

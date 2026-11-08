@@ -253,6 +253,7 @@ def create_app(test_config=None):
                 'date': daily.date.strftime('%B %d, %Y'),
                 'total': daily.task_number,
                 'completed': len(completed_tasks),
+                'fully_completed': len(completed_tasks) == daily.task_number,
                 'tasks': completed_tasks,
             })
         return render_template('history.html', user=user, history=history_data)

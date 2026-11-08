@@ -6,7 +6,7 @@
 {% if error %}<div class="error-message" role="alert">{{ error }}</div>{% endif %}
 <form method="POST" action="{{ url_for('register') }}">
     <div class="form-group"><label for="username">Choose a username</label><input type="text" id="username" name="username" required minlength="3" maxlength="80" autocomplete="username" placeholder="What should we call you?" value="{{ request.form.get('username', '') }}"><p class="field-hint">At least 3 characters. This space is yours.</p></div>
-    <div class="form-group"><label for="password">Create a password</label><div class="password-field"><input type="password" id="password" name="password" required minlength="4" maxlength="256" autocomplete="new-password" placeholder="At least 4 characters"><button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">{{ icon('eye', 19) }}</button></div></div>
+    <div class="form-group"><label for="password">Create a password</label><div class="password-field"><input type="password" id="password" name="password" required minlength="4" maxlength="128" autocomplete="new-password" placeholder="At least 4 characters"><button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">{{ icon('eye', 19) }}</button></div></div>
     <button type="submit" class="btn btn-primary">Create my account {{ icon('arrow', 18) }}</button>
 </form><p class="auth-link">Already have a space here? <a href="{{ url_for('login') }}">Sign in</a></p>
 {% endblock %}
